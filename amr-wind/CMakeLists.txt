@@ -16,6 +16,8 @@ target_include_directories(${amr_wind_lib_name} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}>
   $<INSTALL_INTERFACE:include>)
 
+target_include_directories(${amr_wind_lib_name} PUBLIC ${ASCENT_DIR}/include/ascent)
+
 #Gather all other source files
 add_subdirectory(core)
 add_subdirectory(boundary_conditions)

@@ -132,6 +132,7 @@ void incflo::Evolve()
         if (m_time.write_plot_file())
         {
             m_sim.io_manager().write_plot_file();
+            m_sim.io_manager().ascent();
         }
 
         if(m_time.write_checkpoint())

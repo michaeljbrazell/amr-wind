@@ -28,6 +28,9 @@ public:
     //! Write all user-requested fields to disk
     void write_plot_file();
 
+    //! Write all user-requested fields to disk
+    void ascent();
+
     //! Write all necessary fields for restart
     void write_checkpoint_file();
 

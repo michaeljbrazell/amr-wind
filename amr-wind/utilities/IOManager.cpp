@@ -8,6 +8,9 @@
 #include "AMReX_ParmParse.H"
 #include "AMReX_PlotFileUtil.H"
 
+#include "AMReX_Conduit_Blueprint.H"
+#include <ascent.hpp>
+
 namespace amr_wind {
 namespace {
 
@@ -124,6 +127,116 @@ void IOManager::write_plot_file()
 
     write_info_file(plt_filename);
 }
+
+
+void IOManager::ascent()
+{
+    BL_PROFILE("amr-wind::IOManager::ascent");
+
+    amrex::Vector<int> istep(m_sim.mesh().finestLevel() + 1, m_sim.time().time_index());
+    auto outfield = m_sim.repo().create_scratch_field(m_plt_num_comp);
+    const int nlevels = m_sim.repo().num_active_levels();
+
+     for (int lev=0; lev < nlevels; ++lev) {
+        int icomp = 0;
+        auto& mf = (*outfield)(lev);
+
+         for (auto* fld: m_plt_fields) {
+            amrex::MultiFab::Copy(mf, (*fld)(lev), 0, icomp, fld->num_comp(), 0);
+            icomp += fld->num_comp();
+        }
+    }
+
+     //const std::string& plt_filename =
+    //    amrex::Concatenate(m_plt_prefix, m_sim.time().time_index());
+    const auto& mesh = m_sim.mesh();
+    amrex::Print()
+        << "Calling Ascent  at time "
+        << m_sim.time().new_time() << std::endl;
+    conduit::Node bp_mesh;
+    amrex::MultiLevelToBlueprint(
+        nlevels, outfield->vec_const_ptrs(), m_plt_var_names,
+        mesh.Geom(), m_sim.time().new_time(), istep, mesh.refRatio(), bp_mesh);
+
+     ascent::Ascent ascent;
+    conduit::Node open_opts;
+
+#ifdef BL_USE_MPI
+    open_opts["mpi_comm"] = MPI_Comm_c2f(amrex::ParallelDescriptor::Communicator());
+#endif
+    ascent.open(open_opts);
+    conduit::Node verify_info;
+    if(!conduit::blueprint::mesh::verify(bp_mesh,verify_info))
+    {
+      // verify failed, print error message
+      ASCENT_INFO("Error: Mesh Blueprint Verify Failed!");
+      // show details of what went awry
+      verify_info.print();
+    }
+    else
+    {
+      std::cout << " everything A-ok" << std::endl;
+    }
+
+    // publish mesh to ascent
+    ascent.publish(bp_mesh);
+
+//    // setup actions
+//    conduit::Node actions;
+//    conduit::Node &add_act = actions.append();
+//    add_act["action"] = "add_extracts";
+//
+//    conduit::Node &extracts = add_act["extracts"];
+//    extracts["e1/type"] = "python";
+//    extracts["e1/params/file"] = "/Users/mbrazell/Codes/amr-wind/build/ascent_extract.py";
+//
+
+    // setup actions
+    conduit::Node actions;
+    conduit::Node &add_act = actions.append();
+    add_act["action"] = "add_pipelines";
+    conduit::Node &pipelines = add_act["pipelines"];
+
+    // create a  pipeline (pl1) with a contour filter (f1)
+    pipelines["pl1/f1/type"] = "contour";
+
+    // extract contours where braid variable
+    // equals 0.2 and 0.4
+    conduit::Node &contour_params = pipelines["pl1/f1/params"];
+    contour_params["field"] = "temperature";
+
+    double iso_vals[2] = {308.0, 308.1};
+    contour_params["iso_values"].set(iso_vals,2);
+
+    // pipeline 2
+    pipelines["pl2/f1/type"] = "threshold";
+    // filter parameters
+    conduit::Node thresh_params;
+    thresh_params["field"]  = "temperature";
+    thresh_params["min_value"] = 308.0;
+    thresh_params["max_value"] = 308.1;
+    pipelines["pl2/f1/params"] = thresh_params;
+
+
+    // add an extract to capture the pipeline result
+    conduit::Node &add_act2 = actions.append();
+    add_act2["action"] = "add_extracts";
+    conduit::Node &extracts = add_act2["extracts"];
+
+    // add an relay extract (e1) to export the pipeline result
+    // (pl1) to blueprint hdf5 files
+    extracts["e1/type"] = "relay";
+    extracts["e1/pipeline"]  = "pl2";
+    extracts["e1/params/path"] = "out_extract_braid_contour";
+    extracts["e1/params/protocol"] = "blueprint/mesh/hdf5";
+
+
+    // print our full actions tree
+    std::cout << actions.to_yaml() << std::endl;
+
+    ascent.execute(actions);
+}
+
 
 void IOManager::write_checkpoint_file()
 {
