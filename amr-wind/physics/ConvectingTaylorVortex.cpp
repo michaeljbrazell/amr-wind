@@ -36,6 +36,39 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real VExact::operator()(
                     std::exp(-2.0 * omega * t);
 }
 
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real gpxExact::operator()(
+    const amrex::Real u0,
+    const amrex::Real v0,
+    const amrex::Real omega,
+    const amrex::Real x,
+    const amrex::Real y,
+    const amrex::Real t) const
+{
+    return - 0.25*(-2.0*amr_wind::utils::pi()*std::sin(2.0*amr_wind::utils::pi() * (x - u0 * t))) * std::exp(-4.0 * omega * t);
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real gpyExact::operator()(
+    const amrex::Real u0,
+    const amrex::Real v0,
+    const amrex::Real omega,
+    const amrex::Real x,
+    const amrex::Real y,
+    const amrex::Real t) const
+{
+    return - 0.25*(-2.0*amr_wind::utils::pi()*std::sin(2.0*amr_wind::utils::pi() * (y - v0 * t))) * std::exp(-4.0 * omega * t);
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real gpzExact::operator()(
+    const amrex::Real u0,
+    const amrex::Real v0,
+    const amrex::Real omega,
+    const amrex::Real x,
+    const amrex::Real y,
+    const amrex::Real t) const
+{
+    return 0.0;
+}
+
 } // namespace
 
 ConvectingTaylorVortex::ConvectingTaylorVortex(const CFDSim& sim)
@@ -43,6 +76,7 @@ ConvectingTaylorVortex::ConvectingTaylorVortex(const CFDSim& sim)
     , m_repo(sim.repo())
     , m_mesh(sim.mesh())
     , m_velocity(sim.repo().get_field("velocity"))
+    , m_gradp(sim.repo().get_field("gp"))
     , m_density(sim.repo().get_field("density"))
 {
     amrex::ParmParse pp("CTV");
@@ -60,7 +94,10 @@ ConvectingTaylorVortex::ConvectingTaylorVortex(const CFDSim& sim)
         std::ofstream f;
         f.open(m_output_fname.c_str());
         f << std::setw(m_w) << "time" << std::setw(m_w) << "L2_u"
-          << std::setw(m_w) << "L2_v" << std::endl;
+          << std::setw(m_w) << "L2_v"
+        << std::setw(m_w) << "L2_gpx"
+        << std::setw(m_w) << "L2_gpy"
+        << std::setw(m_w) << "L2_gpz" << std::endl;
         f.close();
     }
 }
@@ -191,12 +228,16 @@ void ConvectingTaylorVortex::output_error()
 {
     const amrex::Real u_err = compute_error<UExact>(m_velocity);
     const amrex::Real v_err = compute_error<VExact>(m_velocity);
+    const amrex::Real gpx_err = compute_error<gpxExact>(m_gradp);
+    const amrex::Real gpy_err = compute_error<gpyExact>(m_gradp);
+    const amrex::Real gpz_err = compute_error<gpzExact>(m_gradp);
 
     if (amrex::ParallelDescriptor::IOProcessor()) {
         std::ofstream f;
         f.open(m_output_fname.c_str(), std::ios_base::app);
         f << std::setprecision(12) << std::setw(m_w) << m_time.new_time()
-          << std::setw(m_w) << u_err << std::setw(m_w) << v_err << std::endl;
+          << std::setw(m_w) << u_err << std::setw(m_w) << v_err
+        << std::setw(m_w) << gpx_err << std::setw(m_w) << gpy_err << std::setw(m_w) << gpz_err << std::endl;
         f.close();
     }
 }

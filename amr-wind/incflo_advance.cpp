@@ -149,7 +149,7 @@ void incflo::advance()
             omega = amr_wind::utils::pi() * amr_wind::utils::pi() * nu;
         }
 
-        update_pr(u0, v0, p0, omega, t);
+        update_pr(u0, v0, p0, omega, t+0.5*m_time.deltaT());
         update_velocity(u0, v0, omega, t, amr_wind::FieldState::New);
 
     }

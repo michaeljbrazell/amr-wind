@@ -33,6 +33,41 @@ struct VExact
     const int m_comp{1};
 };
 
+struct gpxExact
+{
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real operator()(
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real) const;
+    const int m_comp{0};
+};
+
+struct gpyExact
+{
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real operator()(
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real) const;
+    const int m_comp{1};
+};
+
+struct gpzExact
+{
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real operator()(
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real) const;
+    const int m_comp{2};
+};
 } // namespace
 
 /** Convecting Taylor Vortex physics
@@ -65,6 +100,7 @@ private:
     const FieldRepo& m_repo;
     const amrex::AmrCore& m_mesh;
     Field& m_velocity;
+    Field& m_gradp;
     Field& m_density;
     void output_error();
 
