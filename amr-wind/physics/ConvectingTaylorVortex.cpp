@@ -36,6 +36,17 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real VExact::operator()(
                     std::exp(-2.0 * omega * t);
 }
 
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real WExact::operator()(
+    const amrex::Real u0,
+    const amrex::Real v0,
+    const amrex::Real omega,
+    const amrex::Real x,
+    const amrex::Real y,
+    const amrex::Real t) const
+{
+    return 0.0;
+}
+
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real gpxExact::operator()(
     const amrex::Real u0,
     const amrex::Real v0,
@@ -95,6 +106,7 @@ ConvectingTaylorVortex::ConvectingTaylorVortex(const CFDSim& sim)
         f.open(m_output_fname.c_str());
         f << std::setw(m_w) << "time" << std::setw(m_w) << "L2_u"
           << std::setw(m_w) << "L2_v"
+        << std::setw(m_w) << "L2_w"
         << std::setw(m_w) << "L2_gpx"
         << std::setw(m_w) << "L2_gpy"
         << std::setw(m_w) << "L2_gpz" << std::endl;
@@ -228,6 +240,7 @@ void ConvectingTaylorVortex::output_error()
 {
     const amrex::Real u_err = compute_error<UExact>(m_velocity);
     const amrex::Real v_err = compute_error<VExact>(m_velocity);
+    const amrex::Real w_err = compute_error<WExact>(m_velocity);
     const amrex::Real gpx_err = compute_error<gpxExact>(m_gradp);
     const amrex::Real gpy_err = compute_error<gpyExact>(m_gradp);
     const amrex::Real gpz_err = compute_error<gpzExact>(m_gradp);
@@ -236,7 +249,7 @@ void ConvectingTaylorVortex::output_error()
         std::ofstream f;
         f.open(m_output_fname.c_str(), std::ios_base::app);
         f << std::setprecision(12) << std::setw(m_w) << m_time.new_time()
-          << std::setw(m_w) << u_err << std::setw(m_w) << v_err
+          << std::setw(m_w) << u_err << std::setw(m_w) << v_err << std::setw(m_w) << w_err
         << std::setw(m_w) << gpx_err << std::setw(m_w) << gpy_err << std::setw(m_w) << gpz_err << std::endl;
         f.close();
     }

@@ -129,7 +129,7 @@ void incflo::advance()
     BL_PROFILE("amr-wind::incflo::Advance");
 
     if(m_sim.has_overset()){
-        amrex::Real t = m_time.current_time();
+        amrex::Real t = m_time.new_time();
         amrex::Real u0 = 1.0;
         amrex::Real v0 = 1.0;
         amrex::Real p0 = 1.0;
@@ -149,7 +149,8 @@ void incflo::advance()
             omega = amr_wind::utils::pi() * amr_wind::utils::pi() * nu;
         }
 
-        update_pr(u0, v0, p0, omega, t+0.5*m_time.deltaT());
+        update_pr(u0, v0, p0, omega, t);
+//        update_pr(u0, v0, p0, omega, t+0.5*m_time.deltaT());
         update_velocity(u0, v0, omega, t, amr_wind::FieldState::New);
 
     }

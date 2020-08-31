@@ -33,6 +33,19 @@ struct VExact
     const int m_comp{1};
 };
 
+struct WExact
+{
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real operator()(
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real,
+        const amrex::Real) const;
+    const int m_comp{2};
+};
+
+
 struct gpxExact
 {
     AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real operator()(
