@@ -83,6 +83,10 @@ public:
     void init_amr_wind_modules();
     void prepare_for_time_integration();
     bool regrid_and_update();
+    void update_velocity(amrex::Real u0, amrex::Real v0, amrex::Real omega, amrex::Real t, amr_wind::FieldState fstate);
+    void update_gp(amrex::Real u0, amrex::Real v0, amrex::Real p0, amrex::Real omega, amrex::Real t);
+    void update_pr(amrex::Real u0, amrex::Real v0, amrex::Real p0, amrex::Real omega, amrex::Real t);
+
     void advance();
     void post_advance_work();
 

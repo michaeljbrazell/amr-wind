@@ -64,6 +64,62 @@ void TiogaInterface::post_init_actions()
     // Initialize masking so that all cells are active in solvers
     m_mask_cell.setVal(1);
     m_mask_node.setVal(1);
+
+    m_iblank_cell.setVal(1);
+    m_iblank_node.setVal(1);
+
+    int ncellx = 64;
+    int ncelly = 64;
+    int ncellz = 32;
+    amrex::Box overset_box(amrex::IntVect{AMREX_D_DECL(  ncellx/4, ncelly/4, ncellz/4)},
+                           amrex::IntVect{AMREX_D_DECL(3*ncellx/4,3*ncelly/4,3*ncellz/4)});
+    int nf = 3;
+    amrex::Box overset_box_nm1(amrex::IntVect{AMREX_D_DECL(  ncellx/4+nf,  ncelly/4+nf,  ncellz/4+nf)},
+                               amrex::IntVect{AMREX_D_DECL(3*ncellx/4-nf,3*ncelly/4-nf,3*ncellz/4-nf)});
+
+    int lev=0;
+
+    for (amrex::MFIter mfi(m_mask_cell(lev)); mfi.isValid(); ++mfi)
+    {
+        amrex::Box bx = mfi.validbox();
+
+        auto ibcarr = m_iblank_cell(lev).array(mfi);
+        auto mcarr = m_mask_cell(lev).array(mfi);
+
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+            if(overset_box.contains(amrex::IntVect(AMREX_D_DECL(i,j,k)))) {
+                ibcarr(i,j,k) = -1;
+                mcarr(i,j,k) = 0;
+            }
+
+            if(overset_box_nm1.contains(amrex::IntVect(AMREX_D_DECL(i,j,k)))){
+                ibcarr(i,j,k) = 0;
+            }
+        });
+
+    }
+
+    amrex::Print() << surroundingNodes(overset_box_nm1) << surroundingNodes(overset_box) << overset_box << overset_box_nm1 << std::endl;
+    for (amrex::MFIter mfi(m_mask_node(lev)); mfi.isValid(); ++mfi)
+    {
+        amrex::Box bx = mfi.validbox();
+
+        auto ibnarr = m_iblank_node(lev).array(mfi);
+        auto mnarr = m_mask_node(lev).array(mfi);
+
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+            if(surroundingNodes(overset_box).contains(amrex::IntVect(AMREX_D_DECL(i,j,k)))) {
+                ibnarr(i,j,k) = -1;
+                mnarr(i,j,k) = 0;
+            }
+
+            if(surroundingNodes(overset_box_nm1).contains(amrex::IntVect(AMREX_D_DECL(i,j,k)))){
+                ibnarr(i,j,k) = 0;
+            }
+        });
+
+    }
+
 }
 
 void TiogaInterface::post_regrid_actions()
@@ -73,6 +129,7 @@ void TiogaInterface::post_regrid_actions()
     // Initialize masking so that all cells are active in solvers
     m_mask_cell.setVal(1);
     m_mask_node.setVal(1);
+
 }
 
 void TiogaInterface::pre_overset_conn_work()

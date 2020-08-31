@@ -12,8 +12,101 @@
 #include "amr-wind/utilities/console_io.H"
 #include "amr-wind/utilities/PostProcessing.H"
 #include "amr-wind/core/field_ops.H"
+#include "amr-wind/utilities/trig_ops.H"
 
 using namespace amrex;
+
+
+void incflo::update_velocity(amrex::Real u0, amrex::Real v0, amrex::Real omega, amrex::Real t, amr_wind::FieldState fstate){
+
+    if (!m_sim.has_overset()) return;
+
+    auto& vel = velocity().state(fstate);
+    auto& iblank_cell = m_repo.get_int_field("iblank_cell");
+
+    amrex::Real dummy = 0.0;
+    // amr_wind::ctv::UExact uexact;
+
+    for (int lev = 0; lev < m_repo.num_active_levels(); ++lev) {
+        const auto& dx = Geom(lev).CellSizeArray();
+        const auto& problo = Geom(lev).ProbLoArray();
+
+        for (amrex::MFIter mfi(vel(lev)); mfi.isValid(); ++mfi)
+        {
+            amrex::Box bx = mfi.validbox();
+
+            auto varr = vel(lev).array(mfi);
+            auto ibcarr = iblank_cell(lev).array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+
+                if(ibcarr(i,j,k) == 0)
+                {
+                    varr(i,j,k,0) = dummy;
+                    varr(i,j,k,1) = dummy;
+                    varr(i,j,k,2) = dummy;
+                }
+
+                if(ibcarr(i,j,k) < 1) // to override above
+//                  if(ibcarr(i,j,k) == -1)
+                {
+
+                    const amrex::Real x = problo[0] + (i + 0.5) * dx[0];
+                    const amrex::Real y = problo[1] + (j + 0.5) * dx[1];
+
+    //                varr(i,j,k,0) = uexact(u0, v0, omega, x, y, t);
+                    varr(i,j,k,0) = u0 - std::cos(amr_wind::utils::pi() * (x - u0 * t)) * std::sin(amr_wind::utils::pi() * (y - v0 * t)) * std::exp(-2.0 * omega * t);
+                    varr(i,j,k,1) = v0 + std::sin(amr_wind::utils::pi() * (x - u0 * t)) * std::cos(amr_wind::utils::pi() * (y - v0 * t)) * std::exp(-2.0 * omega * t);
+
+                }
+            });
+
+        }
+    }
+}
+
+
+void incflo::update_pr(amrex::Real u0, amrex::Real v0, amrex::Real p0, amrex::Real omega, amrex::Real t){
+
+    if (!m_sim.has_overset()) return;
+
+    auto& pr = pressure();
+    auto& iblank_node = m_repo.get_int_field("iblank_node");
+
+    amrex::Real dummy = 0.0;
+
+    for (int lev = 0; lev < m_repo.num_active_levels(); ++lev) {
+        const auto& dx = Geom(lev).CellSizeArray();
+        const auto& problo = Geom(lev).ProbLoArray();
+
+
+        for (amrex::MFIter mfi(pr(lev)); mfi.isValid(); ++mfi)
+        {
+            amrex::Box bx = mfi.validbox();
+            auto parr = pr(lev).array(mfi);
+            auto ibnarr = iblank_node(lev).array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                if(ibnarr(i,j,k) == 0)
+                {
+                    parr(i,j,k) = dummy;
+                }
+
+                if(ibnarr(i,j,k) < 1)
+//              if(ibnarr(i,j,k) == -1)
+                {
+                    const amrex::Real x = problo[0] + i * dx[0];
+                    const amrex::Real y = problo[1] + j * dx[1];
+
+                    parr(i,j,k) = - 0.25*p0*(std::cos(2.0*amr_wind::utils::pi() * (x - u0 * t)) + std::cos(2.0*amr_wind::utils::pi() * (y - v0 * t))) * std::exp(-4.0 * omega * t);
+                }
+            });
+
+        }
+    }
+}
+
+
 
 /** Advance simulation state by one timestep
  *
@@ -34,6 +127,32 @@ using namespace amrex;
 void incflo::advance()
 {
     BL_PROFILE("amr-wind::incflo::Advance");
+
+    if(m_sim.has_overset()){
+        amrex::Real t = m_time.current_time();
+        amrex::Real u0 = 1.0;
+        amrex::Real v0 = 1.0;
+        amrex::Real p0 = 1.0;
+
+        amrex::Print() << "time: " << t << std::endl;
+
+        {
+            amrex::ParmParse pp("CTV");
+            pp.query("u0", u0);
+            pp.query("v0", v0);
+        }
+        amrex::Real omega = 0.0;
+        {
+            amrex::ParmParse pp("transport");
+            amrex::Real nu;
+            pp.query("viscosity", nu);
+            omega = amr_wind::utils::pi() * amr_wind::utils::pi() * nu;
+        }
+
+        update_pr(u0, v0, p0, omega, t);
+        update_velocity(u0, v0, omega, t, amr_wind::FieldState::New);
+
+    }
 
     // Compute time step size
     bool explicit_diffusion = (m_diff_type == DiffusionType::Explicit);
