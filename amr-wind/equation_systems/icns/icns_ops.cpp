@@ -116,6 +116,10 @@ void advection_mac_project(FieldRepo& repo, const FieldState fstate, const bool 
         macproj.project(options.rel_tol, options.abs_tol);
     }
 
+    for (int lev = 0; lev < repo.num_active_levels(); ++lev) {
+        amrex::average_face_to_cellcenter(repo.get_field("velocity").state(amr_wind::FieldState::NPH)(lev), 0, amrex::GetArrOfConstPtrs(mac_vec[lev]));
+    }
+
     io::print_mlmg_info("MAC_projection", macproj.getMLMG());
 }
 

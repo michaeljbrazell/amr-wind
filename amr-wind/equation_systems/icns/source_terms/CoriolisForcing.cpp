@@ -66,7 +66,7 @@ void CoriolisForcing::operator()(
     const auto sinphi = m_sinphi;
     const auto cosphi = m_cosphi;
     const auto corfac = m_coriolis_factor;
-    const auto& vel = m_velocity.state(field_impl::dof_state(fstate))(lev).const_array(mfi);
+    const auto& vel = m_velocity.state(field_impl::phi_state(fstate))(lev).const_array(mfi);
 
     amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
         const amrex::Real ue = east[0] * vel(i, j, k, 0) +
