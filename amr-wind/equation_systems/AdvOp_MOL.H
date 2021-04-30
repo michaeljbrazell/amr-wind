@@ -46,6 +46,13 @@ struct AdvectionOp<
         auto& dof_field = fields.field.state(fstate);
         const auto& den = density.state(fstate);
 
+        auto flux_x =
+            repo.create_scratch_field(PDE::ndim, 0, amr_wind::FieldLoc::XFACE);
+        auto flux_y =
+            repo.create_scratch_field(PDE::ndim, 0, amr_wind::FieldLoc::YFACE);
+        auto flux_z =
+            repo.create_scratch_field(PDE::ndim, 0, amr_wind::FieldLoc::ZFACE);
+
         for (int lev = 0; lev < repo.num_active_levels(); ++lev) {
             amrex::MFItInfo mfi_info;
             // if (amrex::Gpu::notInLaunchRegion())
@@ -84,30 +91,48 @@ struct AdvectionOp<
                 }
 
                 {
-                    const int nmaxcomp = PDE::ndim;
-
-                    amrex::Box tmpbox = amrex::surroundingNodes(bx);
-                    const int tmpcomp = nmaxcomp * AMREX_SPACEDIM;
-
-                    amrex::FArrayBox tmpfab(tmpbox, tmpcomp);
-                    amrex::Elixir eli = tmpfab.elixir();
-
-                    amrex::Array4<amrex::Real> fx = tmpfab.array(0);
-                    amrex::Array4<amrex::Real> fy = tmpfab.array(nmaxcomp);
-                    amrex::Array4<amrex::Real> fz = tmpfab.array(nmaxcomp * 2);
 
                     mol::compute_convective_fluxes(
-                        lev, bx, PDE::ndim, fx, fy, fz,
+                        lev, bx, PDE::ndim, (*flux_x)(lev).array(mfi),
+                        (*flux_y)(lev).array(mfi), (*flux_z)(lev).array(mfi),
                         (PDE::multiply_rho ? rhotrac : tra_arr),
                         u_mac(lev).const_array(mfi),
                         v_mac(lev).const_array(mfi),
                         w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
                         dof_field.bcrec_device().data(), geom);
-
-                    mol::compute_convective_rate(
-                        bx, PDE::ndim, conv_term(lev).array(mfi), fx, fy, fz,
-                        geom[lev].InvCellSizeArray());
                 }
+            }
+        }
+
+        amrex::Vector<amrex::Array<amrex::MultiFab*, AMREX_SPACEDIM>> fluxes(
+            repo.num_active_levels());
+        for (int lev = 0; lev < repo.num_active_levels(); ++lev) {
+            fluxes[lev][0] = &(*flux_x)(lev);
+            fluxes[lev][1] = &(*flux_y)(lev);
+            fluxes[lev][2] = &(*flux_z)(lev);
+        }
+
+        // In order to enforce conservation across coarse-fine boundaries we
+        // must be sure to average down the fluxes before we use them
+        for (int lev = repo.num_active_levels() - 1; lev > 0; --lev) {
+            amrex::IntVect rr =
+                geom[lev].Domain().size() / geom[lev - 1].Domain().size();
+            amrex::average_down_faces(
+                GetArrOfConstPtrs(fluxes[lev]), fluxes[lev - 1], rr,
+                geom[lev - 1]);
+        }
+
+        for (int lev = 0; lev < repo.num_active_levels(); ++lev) {
+#ifdef _OPENMP
+#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
+#endif
+            for (amrex::MFIter mfi(dof_field(lev), amrex::TilingIfNotGPU());
+                 mfi.isValid(); ++mfi) {
+                const auto& bx = mfi.tilebox();
+                mol::compute_convective_rate(
+                    bx, PDE::ndim, conv_term(lev).array(mfi),
+                    (*flux_x)(lev).array(mfi), (*flux_y)(lev).array(mfi),
+                    (*flux_z)(lev).array(mfi), geom[lev].InvCellSizeArray());
             }
         }
     }

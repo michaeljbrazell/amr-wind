@@ -19,8 +19,6 @@ void mol::predict_vels_on_faces(
 {
     BL_PROFILE("amr-wind::mol::predict_vels_on_faces");
 
-    constexpr Real small_vel = 1.e-10;
-
     const int ncomp =
         AMREX_SPACEDIM; // This is only used because h_bcrec and d_bcrec hold
                         // the bc's for all three velocity components
@@ -46,8 +44,8 @@ void mol::predict_vels_on_faces(
         amrex::ParallelFor(
             ubx, [vcc, domain_ilo, domain_ihi, u,
                   d_bcrec] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-
-                Real u_val = 0.5*(vcc(i-1,j,k,0) + vcc(i,j,k,0));
+                Real u_val = c1 * (vcc(i - 1, j, k, 0) + vcc(i, j, k, 0)) +
+                             c2 * (vcc(i - 2, j, k, 0) + vcc(i + 1, j, k, 0));
 
                 if (i == domain_ilo && (d_bcrec[0].lo(0) == BCType::ext_dir)) {
                     u_val = vcc(i - 1, j, k, 0);
@@ -62,8 +60,8 @@ void mol::predict_vels_on_faces(
     } else {
         amrex::ParallelFor(
             ubx, [vcc, u] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-              u(i, j, k) = 0.5*(vcc(i-1,j,k,0) + vcc(i,j,k,0));
-
+                u(i, j, k) = c1 * (vcc(i - 1, j, k, 0) + vcc(i, j, k, 0)) +
+                             c2 * (vcc(i - 2, j, k, 0) + vcc(i + 1, j, k, 0));
             });
     }
 
@@ -77,8 +75,8 @@ void mol::predict_vels_on_faces(
         amrex::ParallelFor(
             vbx, [vcc, domain_jlo, domain_jhi, v,
                   d_bcrec] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-
-                Real v_val = 0.5*(vcc(i,j-1,k,1) + vcc(i,j,k,1));
+                Real v_val = c1 * (vcc(i, j - 1, k, 1) + vcc(i, j, k, 1)) +
+                             c2 * (vcc(i, j - 2, k, 1) + vcc(i, j + 1, k, 1));
 
                 if (j == domain_jlo && (d_bcrec[1].lo(1) == BCType::ext_dir)) {
                     v_val = vcc(i, j - 1, k, 1);
@@ -93,7 +91,8 @@ void mol::predict_vels_on_faces(
     } else {
         amrex::ParallelFor(
             vbx, [vcc, v] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                v(i, j, k) = 0.5*(vcc(i,j-1,k,1) + vcc(i,j,k,1));
+                v(i, j, k) = c1 * (vcc(i, j - 1, k, 1) + vcc(i, j, k, 1)) +
+                             c2 * (vcc(i, j - 2, k, 1) + vcc(i, j + 1, k, 1));
             });
     }
 
@@ -107,15 +106,15 @@ void mol::predict_vels_on_faces(
         amrex::ParallelFor(
             wbx, [vcc, domain_klo, domain_khi, w,
                   d_bcrec] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-
-                Real w_val = 0.5*(vcc(i,j,k-1,2) + vcc(i,j,k,2));
+                Real w_val = c1 * (vcc(i, j, k - 1, 2) + vcc(i, j, k, 2)) +
+                             c2 * (vcc(i, j, k - 2, 2) + vcc(i, j, k + 1, 2));
 
                 if (k == domain_klo && (d_bcrec[2].lo(2) == BCType::ext_dir)) {
-                    w_val = vcc(i,j,k-1,2);
+                    w_val = vcc(i, j, k - 1, 2);
                 } else if (
                     k == domain_khi + 1 &&
                     (d_bcrec[2].hi(2) == BCType::ext_dir)) {
-                    w_val = vcc(i,j,k,2);
+                    w_val = vcc(i, j, k, 2);
                 }
 
                 w(i, j, k) = w_val;
@@ -123,7 +122,8 @@ void mol::predict_vels_on_faces(
     } else {
         amrex::ParallelFor(
             wbx, [vcc, w] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                w(i, j, k) = 0.5*(vcc(i,j,k-1,2) + vcc(i,j,k,2));
+                w(i, j, k) = c1 * (vcc(i, j, k - 1, 2) + vcc(i, j, k, 2)) +
+                             c2 * (vcc(i, j, k - 2, 2) + vcc(i, j, k + 1, 2));
             });
     }
 }

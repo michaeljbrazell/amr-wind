@@ -10,6 +10,14 @@
 
 namespace mol {
 
+// high-order
+//#define c1 7.0/12.0
+//#define c2 -1.0/12.0
+
+// central difference
+#define c1 0.5
+#define c2 0.0
+
 void predict_vels_on_faces(
     int lev,
     amrex::Box const& ubx,

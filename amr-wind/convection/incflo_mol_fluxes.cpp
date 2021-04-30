@@ -41,7 +41,6 @@ void mol::compute_convective_fluxes(
     Vector<Geometry> geom)
 {
     BL_PROFILE("amr-wind::mol::compute_convective_fluxes");
-    constexpr Real small_vel = 1.e-10;
 
     const Box& domain_box = geom[lev].Domain();
     const int domain_ilo = domain_box.smallEnd(0);
@@ -67,7 +66,6 @@ void mol::compute_convective_fluxes(
             xbx, ncomp,
             [d_bcrec, q, domain_ilo, domain_ihi, umac,
              fx] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-
                 Real qs;
                 if (i <= domain_ilo && (d_bcrec[n].lo(0) == BCType::ext_dir)) {
                     qs = q(domain_ilo - 1, j, k, n);
@@ -76,7 +74,8 @@ void mol::compute_convective_fluxes(
                     (d_bcrec[n].hi(0) == BCType::ext_dir)) {
                     qs = q(domain_ihi + 1, j, k, n);
                 } else {
-                    qs = 0.5*(q(i-1,j,k,n) + q(i,j,k,n));
+                    qs = c1 * (q(i - 1, j, k, n) + q(i, j, k, n)) +
+                         c2 * (q(i - 2, j, k, n) + q(i + 1, j, k, n));
                 }
                 fx(i, j, k, n) = qs * umac(i, j, k);
             });
@@ -85,7 +84,8 @@ void mol::compute_convective_fluxes(
             xbx, ncomp,
             [q, umac,
              fx] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qs = 0.5*(q(i-1,j,k,n) + q(i,j,k,n));
+                Real qs = c1 * (q(i - 1, j, k, n) + q(i, j, k, n)) +
+                          c2 * (q(i - 2, j, k, n) + q(i + 1, j, k, n));
                 fx(i, j, k, n) = qs * umac(i, j, k);
             });
     }
@@ -100,7 +100,6 @@ void mol::compute_convective_fluxes(
             ybx, ncomp,
             [d_bcrec, q, domain_jlo, domain_jhi, vmac,
              fy] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-
                 Real qs;
                 if (j <= domain_jlo && (d_bcrec[n].lo(1) == BCType::ext_dir)) {
                     qs = q(i, domain_jlo - 1, k, n);
@@ -109,7 +108,8 @@ void mol::compute_convective_fluxes(
                     (d_bcrec[n].hi(1) == BCType::ext_dir)) {
                     qs = q(i, domain_jhi + 1, k, n);
                 } else {
-                    qs = 0.5*(q(i,j-1,k,n) + q(i,j,k,n));
+                    qs = c1 * (q(i, j - 1, k, n) + q(i, j, k, n)) +
+                         c2 * (q(i, j - 2, k, n) + q(i, j + 1, k, n));
                 }
                 fy(i, j, k, n) = qs * vmac(i, j, k);
             });
@@ -118,8 +118,8 @@ void mol::compute_convective_fluxes(
             ybx, ncomp,
             [q, vmac,
              fy] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-
-                Real qs = 0.5*(q(i,j-1,k,n) + q(i,j,k,n));
+                Real qs = c1 * (q(i, j - 1, k, n) + q(i, j, k, n)) +
+                          c2 * (q(i, j - 2, k, n) + q(i, j + 1, k, n));
                 fy(i, j, k, n) = qs * vmac(i, j, k);
             });
     }
@@ -134,7 +134,6 @@ void mol::compute_convective_fluxes(
             zbx, ncomp,
             [d_bcrec, q, domain_klo, domain_khi, wmac,
              fz] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-
                 Real qs;
                 if (k <= domain_klo && (d_bcrec[n].lo(2) == BCType::ext_dir)) {
                     qs = q(i, j, domain_klo - 1, n);
@@ -143,7 +142,8 @@ void mol::compute_convective_fluxes(
                     (d_bcrec[n].hi(2) == BCType::ext_dir)) {
                     qs = q(i, j, domain_khi + 1, n);
                 } else {
-                    qs = 0.5*(q(i,j,k-1,n) + q(i,j,k,n));
+                    qs = qs = c1 * (q(i, j, k - 1, n) + q(i, j, k, n)) +
+                              c2 * (q(i, j, k - 2, n) + q(i, j, k + 1, n));
                 }
                 fz(i, j, k, n) = qs * wmac(i, j, k);
             });
@@ -152,7 +152,8 @@ void mol::compute_convective_fluxes(
             zbx, ncomp,
             [q, wmac,
              fz] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qs = 0.5*(q(i,j,k-1,n) + q(i,j,k,n));
+                Real qs = c1 * (q(i, j, k - 1, n) + q(i, j, k, n)) +
+                          c2 * (q(i, j, k - 2, n) + q(i, j, k + 1, n));
                 fz(i, j, k, n) = qs * wmac(i, j, k);
             });
     }
