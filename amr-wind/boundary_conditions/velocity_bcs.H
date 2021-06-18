@@ -26,6 +26,10 @@ void register_inflow_vel_dirichlet(
         using InflowOp = BCOpCreator<udf::PowerLawProfile, WallOp>;
         field.register_fill_patch_op<FieldFillPatchOps<InflowOp>>(
             mesh, time, InflowOp(field));
+    } else if (inflow_udf == "CTVProfile") {
+            using InflowOp = BCOpCreator<udf::CTVProfile, WallOp>;
+            field.register_fill_patch_op<FieldFillPatchOps<InflowOp>>(
+                mesh, time, InflowOp(field));
     } else {
         amrex::Abort("Velocity BC: Invalid dirichlet BC type = " + inflow_udf);
     }

@@ -31,5 +31,22 @@ PowerLawProfile::PowerLawProfile(const Field& fld) : m_op()
     for (int i = 0; i < AMREX_SPACEDIM; ++i) m_op.uvec[i] = vel[i];
 }
 
+CTVProfile::CTVProfile(const Field& fld) : m_op()
+{
+    AMREX_ALWAYS_ASSERT(fld.name() == pde::ICNS::var_name());
+    AMREX_ALWAYS_ASSERT(fld.num_comp() == AMREX_SPACEDIM);
+    {
+        amrex::ParmParse pp("CTV");
+        pp.query("u0", m_op.u0);
+        pp.query("v0", m_op.v0);
+    }
+    {
+        amrex::Real nu;
+        amrex::ParmParse pp("transport");
+        pp.query("viscosity", nu);
+        m_op.omega = utils::pi() * utils::pi() * nu;
+    }
+}
+
 } // namespace udf
 } // namespace amr_wind
