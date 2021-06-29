@@ -4,6 +4,9 @@
 #include "AMReX_MultiFabUtil.H"
 #include "AMReX_ParmParse.H"
 #include "amr-wind/utilities/trig_ops.H"
+#include <AMReX_MLNodeLaplacian.H>
+#include <AMReX_MLMG.H>
+#include <AMReX_FillPatchUtil.H>
 
 namespace amr_wind {
 namespace ctv {
@@ -84,6 +87,20 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE amrex::Real GpzExact::operator()(
     return 0.0;
 }
 
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE amrex::Real VorticityExact::operator()(
+    const amrex::Real u0,
+    const amrex::Real v0,
+    const amrex::Real omega,
+    const amrex::Real x,
+    const amrex::Real y,
+    const amrex::Real t) const
+{
+
+    const amrex::Real dvdx =   utils::pi() * std::cos(utils::pi() * (x - u0 * t)) * std::cos(utils::pi() * (y - v0 * t)) * std::exp(-2.0 * omega * t);
+    const amrex::Real dudy = - utils::pi() * std::cos(utils::pi() * (x - u0 * t)) * std::cos(utils::pi() * (y - v0 * t)) * std::exp(-2.0 * omega * t);
+    return dvdx - dudy;
+
+}
 } // namespace
 
 ConvectingTaylorVortex::ConvectingTaylorVortex(const CFDSim& sim)
@@ -95,6 +112,9 @@ ConvectingTaylorVortex::ConvectingTaylorVortex(const CFDSim& sim)
     , m_gradp(sim.repo().get_field("gp"))
     , m_density(sim.repo().get_field("density"))
 {
+    sim.repo().declare_nd_field("vorticity", 3, 1, 1);
+    sim.repo().declare_nd_field("streamfunction", 3, 1, 1);
+
     {
         amrex::ParmParse pp("CTV");
         pp.query("density", m_rho);
@@ -146,6 +166,10 @@ void ConvectingTaylorVortex::initialize_fields(
     GpxExact gpx_exact;
     GpyExact gpy_exact;
     GpzExact gpz_exact;
+    VorticityExact vorticity_exact;
+
+    auto& vorticity = m_repo.get_field("vorticity");
+    auto& streamfunction = m_repo.get_field("streamfunction");
 
     for (amrex::MFIter mfi(velocity); mfi.isValid(); ++mfi) {
         const auto& vbx = mfi.validbox();
@@ -183,7 +207,81 @@ void ConvectingTaylorVortex::initialize_fields(
                                  std::cos(2.0 * utils::pi() * y));
                 });
         }
+
+        const auto& nbx = mfi.nodaltilebox();
+        auto vort = vorticity(level).array(mfi);
+
+        amrex::ParallelFor(
+            nbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                const amrex::Real x = problo[0] + i * dx[0];
+                const amrex::Real y = problo[1] + j * dx[1];
+                vort(i, j, k, 0) = 0.0;
+                vort(i, j, k, 1) = 0.0;
+                vort(i, j, k, 2) = vorticity_exact(u0, v0, omega, x, y, 0.0);
+            });
+
     }
+
+    amrex::LPInfo info;
+    auto& mesh = m_velocity.repo().mesh();
+    amrex::MLNodeLaplacian linop({mesh.Geom(level)}, {mesh.boxArray(level)}, {mesh.DistributionMap(level)}, info, {}, 1.0);
+//    linop.setDomainBC({amrex::LinOpBCType::Dirichlet,amrex::LinOpBCType::Dirichlet,amrex::LinOpBCType::Dirichlet},
+//                      {amrex::LinOpBCType::Dirichlet,amrex::LinOpBCType::Dirichlet,amrex::LinOpBCType::Dirichlet});
+    linop.setDomainBC({amrex::LinOpBCType::Periodic,amrex::LinOpBCType::Periodic,amrex::LinOpBCType::Periodic},
+                      {amrex::LinOpBCType::Periodic,amrex::LinOpBCType::Periodic,amrex::LinOpBCType::Periodic});
+
+    amrex::MLMG mlmg(linop);
+
+    if(level == 0.0) {
+        streamfunction(level).setVal(0.0,0,3,1);
+    } else {
+        amrex::PhysBCFunctNoOp bcnoop;
+        amrex::Vector<amrex::BCRec> bcrec(1);
+        amrex::InterpFromCoarseLevel(streamfunction(level), 0.0,
+                                   streamfunction(level-1), 0, 0, 3,
+                                   mesh.Geom(level-1), mesh.Geom(level),
+                                   bcnoop, 0, bcnoop, 0,
+                                   amrex::IntVect{2},
+                                   & amrex::node_bilinear_interp,
+                                   bcrec, 0);
+    }
+
+    for(int i=0;i<AMREX_SPACEDIM;++i){
+        auto stream = streamfunction.subview(i);
+        auto vort = vorticity.subview(i);
+        mlmg.solve({&stream(level)}, {&vort(level)}, 1.0e-6, 0.0);
+    }
+
+    for (amrex::MFIter mfi(velocity); mfi.isValid(); ++mfi) {
+        const auto& vbx = mfi.validbox();
+
+        const auto& dxinv = geom.InvCellSizeArray();
+        auto vel = velocity.array(mfi);
+        auto psi = streamfunction(level).array(mfi);
+        const amrex::Real facx = amrex::Real(0.25)*dxinv[0];
+        const amrex::Real facy = amrex::Real(0.25)*dxinv[1];
+        const amrex::Real facz = amrex::Real(0.25)*dxinv[2];
+
+        amrex::ParallelFor(
+            vbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+
+                //const amrex::Real dpsix_dx = facx * (-psi(i,j,k,0)+psi(i+1,j,k,0)-psi(i,j+1,k,0)+psi(i+1,j+1,k,0)-psi(i,j,k+1,0)+psi(i+1,j,k+1,0)-psi(i,j+1,k+1,0)+psi(i+1,j+1,k+1,0));
+                const amrex::Real dpsix_dy = facy * (-psi(i,j,k,0)-psi(i+1,j,k,0)+psi(i,j+1,k,0)+psi(i+1,j+1,k,0)-psi(i,j,k+1,0)-psi(i+1,j,k+1,0)+psi(i,j+1,k+1,0)+psi(i+1,j+1,k+1,0));
+                const amrex::Real dpsix_dz = facz * (-psi(i,j,k,0)-psi(i+1,j,k,0)-psi(i,j+1,k,0)-psi(i+1,j+1,k,0)+psi(i,j,k+1,0)+psi(i+1,j,k+1,0)+psi(i,j+1,k+1,0)+psi(i+1,j+1,k+1,0));
+                const amrex::Real dpsiy_dx = facx * (-psi(i,j,k,1)+psi(i+1,j,k,1)-psi(i,j+1,k,1)+psi(i+1,j+1,k,1)-psi(i,j,k+1,1)+psi(i+1,j,k+1,1)-psi(i,j+1,k+1,1)+psi(i+1,j+1,k+1,1));
+                //const amrex::Real dpsiy_dy = facy * (-psi(i,j,k,1)-psi(i+1,j,k,1)+psi(i,j+1,k,1)+psi(i+1,j+1,k,1)-psi(i,j,k+1,1)-psi(i+1,j,k+1,1)+psi(i,j+1,k+1,1)+psi(i+1,j+1,k+1,1));
+                const amrex::Real dpsiy_dz = facz * (-psi(i,j,k,1)-psi(i+1,j,k,1)-psi(i,j+1,k,1)-psi(i+1,j+1,k,1)+psi(i,j,k+1,1)+psi(i+1,j,k+1,1)+psi(i,j+1,k+1,1)+psi(i+1,j+1,k+1,1));
+                const amrex::Real dpsiz_dx = facx * (-psi(i,j,k,2)+psi(i+1,j,k,2)-psi(i,j+1,k,2)+psi(i+1,j+1,k,2)-psi(i,j,k+1,2)+psi(i+1,j,k+1,2)-psi(i,j+1,k+1,2)+psi(i+1,j+1,k+1,2));
+                const amrex::Real dpsiz_dy = facy * (-psi(i,j,k,2)-psi(i+1,j,k,2)+psi(i,j+1,k,2)+psi(i+1,j+1,k,2)-psi(i,j,k+1,2)-psi(i+1,j,k+1,2)+psi(i,j+1,k+1,2)+psi(i+1,j+1,k+1,2));
+                //const amrex::Real dpsiz_dz = facz * (-psi(i,j,k,2)-psi(i+1,j,k,2)-psi(i,j+1,k,2)-psi(i+1,j+1,k,2)+psi(i,j,k+1,2)+psi(i+1,j,k+1,2)+psi(i,j+1,k+1,2)+psi(i+1,j+1,k+1,2));
+
+                vel(i, j, k, 0) = u0 - (dpsiz_dy - dpsiy_dz);
+                vel(i, j, k, 1) = v0 - (dpsix_dz - dpsiz_dx);
+                vel(i, j, k, 2) =    - (dpsiy_dx - dpsix_dy);
+
+            });
+    }
+
 }
 
 template <typename T>
