@@ -176,37 +176,6 @@ void ConvectingTaylorVortex::initialize_fields(
 
         const auto& dx = geom.CellSizeArray();
         const auto& problo = geom.ProbLoArray();
-        auto vel = velocity.array(mfi);
-        auto gp = gradp.array(mfi);
-
-        amrex::ParallelFor(
-            vbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                const amrex::Real x = problo[0] + (i + 0.5) * dx[0];
-                const amrex::Real y = problo[1] + (j + 0.5) * dx[1];
-                vel(i, j, k, 0) = u_exact(u0, v0, omega, x, y, 0.0);
-                vel(i, j, k, 1) = v_exact(u0, v0, omega, x, y, 0.0);
-                vel(i, j, k, 2) = w_exact(u0, v0, omega, x, y, 0.0);
-
-                if (activate_pressure) {
-                    gp(i, j, k, 0) = gpx_exact(u0, v0, omega, x, y, 0.0);
-                    gp(i, j, k, 1) = gpy_exact(u0, v0, omega, x, y, 0.0);
-                    gp(i, j, k, 2) = gpz_exact(u0, v0, omega, x, y, 0.0);
-                }
-            });
-
-        if (activate_pressure) {
-            const auto& nbx = mfi.nodaltilebox();
-            auto pres = pressure.array(mfi);
-
-            amrex::ParallelFor(
-                nbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    const amrex::Real x = problo[0] + i * dx[0];
-                    const amrex::Real y = problo[1] + j * dx[1];
-                    pres(i, j, k, 0) =
-                        -0.25 * (std::cos(2.0 * utils::pi() * x) +
-                                 std::cos(2.0 * utils::pi() * y));
-                });
-        }
 
         const auto& nbx = mfi.nodaltilebox();
         auto vort = vorticity(level).array(mfi);
@@ -215,6 +184,9 @@ void ConvectingTaylorVortex::initialize_fields(
             nbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
                 const amrex::Real x = problo[0] + i * dx[0];
                 const amrex::Real y = problo[1] + j * dx[1];
+//
+//            const amrex::Real v_omega = sin(x);
+//            const amrex::Real r = sqrt(std::pow(x-0.0,2) + std::pow(y-0.0,2));
                 vort(i, j, k, 0) = 0.0;
                 vort(i, j, k, 1) = 0.0;
                 vort(i, j, k, 2) = vorticity_exact(u0, v0, omega, x, y, 0.0);
@@ -232,7 +204,7 @@ void ConvectingTaylorVortex::initialize_fields(
 
     amrex::MLMG mlmg(linop);
 
-    if(level == 0.0) {
+    if(level == 0) {
         streamfunction(level).setVal(0.0,0,3,1);
     } else {
         amrex::PhysBCFunctNoOp bcnoop;
